@@ -170,64 +170,59 @@ def query_vectara(text):
         headers=api_key_header
     )
 
-    if response.status_code == 200:
-        query_data = response.json()
-        if query_data:
-            sources_info = []
+    if response.status_code != 200:
+        return f"Error: {response.status_code}"
+    if not (query_data := response.json()):
+        return "No data found in the response."
+    sources_info = []
 
-            # Extract the summary.
-            summary = query_data['responseSet'][0]['summary'][0]['text']
+    # Extract the summary.
+    summary = query_data['responseSet'][0]['summary'][0]['text']
 
             # Iterate over all response sets
-            for response_set in query_data.get('responseSet', []):
+    for response_set in query_data.get('responseSet', []):
                 # Extract sources
                 # Limit to top 5 sources.
-                for source in response_set.get('response', [])[:5]:
-                    source_metadata = source.get('metadata', [])
-                    source_info = {}
+        for source in response_set.get('response', [])[:5]:
+            source_metadata = source.get('metadata', [])
+            source_info = {}
 
-                    for metadata in source_metadata:
-                        metadata_name = metadata.get('name', '')
-                        metadata_value = metadata.get('value', '')
+            for metadata in source_metadata:
+                metadata_name = metadata.get('name', '')
+                metadata_value = metadata.get('value', '')
 
-                        if metadata_name == 'title':
-                            source_info['title'] = metadata_value
-                        elif metadata_name == 'author':
-                            source_info['author'] = metadata_value
-                        elif metadata_name == 'pageNumber':
-                            source_info['page number'] = metadata_value
+                if metadata_name == 'author':
+                    source_info['author'] = metadata_value
+                elif metadata_name == 'pageNumber':
+                    source_info['page number'] = metadata_value
 
-                    if source_info:
-                        sources_info.append(source_info)
+                elif metadata_name == 'title':
+                    source_info['title'] = metadata_value
+            if source_info:
+                sources_info.append(source_info)
 
-            result = {"summary": summary, "sources": sources_info}
-            return f"{json.dumps(result, indent=2)}"
-        else:
-            return "No data found in the response."
-    else:
-        return f"Error: {response.status_code}"
+    result = {"summary": summary, "sources": sources_info}
+    return f"{json.dumps(result, indent=2)}"
 
 
 def convert_to_markdown(vectara_response_json):
-    vectara_response = json.loads(vectara_response_json)
-    if vectara_response:
-        summary = vectara_response.get('summary', 'No summary available')
-        sources_info = vectara_response.get('sources', [])
-
-        # Format the summary as Markdown
-        markdown_summary = f' {summary}\n\n'
-
-        # Format the sources as a numbered list
-        markdown_sources = ""
-        for i, source_info in enumerate(sources_info):
-            author = source_info.get('author', 'Unknown author')
-            title = source_info.get('title', 'Unknown title')
-            page_number = source_info.get('page number', 'Unknown page number')
-            markdown_sources += f"{i+1}. {title} by {author}, Page {page_number}\n"
-
-        return f"{markdown_summary}**Sources:**\n{markdown_sources}"
-    else:
+    if not (vectara_response := json.loads(vectara_response_json)):
         return "No data found in the response."
+    summary = vectara_response.get('summary', 'No summary available')
+    sources_info = vectara_response.get('sources', [])
+
+    # Format the summary as Markdown
+    markdown_summary = f' {summary}\n\n'
+
+    # Format the sources as a numbered list
+    markdown_sources = ""
+    for i, source_info in enumerate(sources_info):
+        author = source_info.get('author', 'Unknown author')
+        title = source_info.get('title', 'Unknown title')
+        page_number = source_info.get('page number', 'Unknown page number')
+        markdown_sources += f"{i+1}. {title} by {author}, Page {page_number}\n"
+
+    return f"{markdown_summary}**Sources:**\n{markdown_sources}"
 # Main function to handle the Gradio interface logic
 
 def process_summary_with_openai(summary):
@@ -237,10 +232,10 @@ def process_summary_with_openai(summary):
     try:
         # Ensure that the OpenAI client is properly initialized
         client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-        
+
         # Create the prompt for OpenAI's completion
         prompt = "You are clinical consultant discussion training cases with students at TonicUniversity. You will recieve a summary assessment. Assess and describe the proper options in minute detail. Propose a course of action based on your assessment. Exclude any other commentary:"
-        
+
         # Call the OpenAI API with the prompt and the summary
         completion = client.chat.completions.create(
             model="gpt-4-1106-preview",  # Make sure to use the correct model name
@@ -249,10 +244,8 @@ def process_summary_with_openai(summary):
                 {"role": "user", "content": summary}
             ]
         )
-        
-        # Extract the content from the completion
-        final_summary = completion.choices[0].message.content
-        return final_summary
+
+        return completion.choices[0].message.content
     except Exception as e:
         return str(e)
         
@@ -260,7 +253,7 @@ def process_summary_with_openai(summary):
 def process_and_query(text=None):
     try:
         # augment the prompt before feeding it to vectara
-        text = "the user asks the following to his health adviser " + text
+        text = f"the user asks the following to his health adviser {text}"
         # If an image is provided, process it with OpenAI and use the response as the text query for Vectara
         # if image is not None:
         #     text = process_image(image)
@@ -269,33 +262,21 @@ def process_and_query(text=None):
         #     text = process_speech(audio)
         #     # augment the prompt before feeding it to vectara
         #     text = "the user asks the following to his health adviser " + text
-            
 
-        
+
+
         # Use the text to query Vectara
         vectara_response_json = query_vectara(text)
-        
+
         # Convert the Vectara response to Markdown
         markdown_output = convert_to_markdown(vectara_response_json)
-        
+
         # Process the summary with OpenAI
         final_response = process_summary_with_openai(markdown_output)
-        
+
         # Return the processed summary along with the full output
         return f"**Summary**: {final_response}\n\n**Full output**:\n{markdown_output}"
-    except Exception as e:
-        return str(e)
-
-        completion = client.chat.completions.create(
-          model="gpt-3.5-turbo",
-          messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": markdown_output_final}
-          ]
-        )
-        final_response= completion.choices[0].message.content
-        return f"**Summary**: {final_response}\n\n**Full output**:\n{markdown_output}"
-    except Exception as e:
+    except (Exception, Exception) as e:
         return str(e)
 
 
